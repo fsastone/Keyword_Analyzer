@@ -18,7 +18,7 @@ graph TD
     A[PDF 原始報告] --> B[Text Extractor]
     B --> C{文字層校驗}
     C -- 有效 --> D[Gemini 2.5 Flash]
-    C -- 損壞 --> E[OCR 待處理區]
+    C -- 損壞 --> E["OCR 待處理區<br>(OCR 功能未新增)"]
     
     subgraph "AI 語義層"
         D --> F[章節結構識別]
