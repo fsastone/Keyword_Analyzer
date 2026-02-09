@@ -3,7 +3,7 @@ import logging
 from pathlib import Path
 from typing import List, Dict
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger("EXTRACTOR")
 
 class TextExtractor:
     """處理 PDF 文字提取與驗證 (保留頁碼資訊)"""

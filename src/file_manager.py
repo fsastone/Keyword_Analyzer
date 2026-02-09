@@ -3,7 +3,7 @@ import logging
 from pathlib import Path
 from .config import ARCHIVE_DIR, OCR_NEEDED_DIR
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger("FILE_MGR")
 
 class FileManager:
     """管理檔案移動與歸檔"""

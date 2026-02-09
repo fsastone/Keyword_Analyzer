@@ -3,20 +3,26 @@ import pandas as pd
 import numpy as np
 from .config import KEYWORDS
 
+# 不需要額外匯入 logging，只需定義 logger
+import logging
+logger = logging.getLogger("ANALYZER")
+
 class KeywordAnalyzer:
     """關鍵字統計與位置追蹤邏輯"""
 
     def __init__(self):
         self.keywords = KEYWORDS
+        # 建立反向查詢字典: { '再生能源': 'Environmental', 'AI': 'Tech/Innovation' }
+        self.kw_to_category = {}
+        for cat, kws in self.keywords.items():
+            for kw in kws:
+                self.kw_to_category[kw] = cat
 
     def analyze_with_positions(self, pages_data: list):
-        """
-        分析關鍵字在每一頁的分布，並擷取上下文
-        """
-        page_hits = []    # 記錄 (關鍵字, 頁碼, 次數)
-        evidence = []     # 記錄 (關鍵字, 頁碼, 上下文摘要)
+        """分析關鍵字在每一頁的分布，並擷取上下文與分類"""
+        page_hits = []
+        evidence = []
         
-        # 展平所有關鍵字清單
         flat_keywords = [kw for sublist in self.keywords.values() for kw in sublist]
         
         for page in pages_data:
@@ -24,41 +30,30 @@ class KeywordAnalyzer:
             text = page['content']
             
             for kw in flat_keywords:
-                # 匹配邏輯
                 is_english = all(ord(c) < 128 for c in kw)
-                if is_english:
-                    pattern = re.compile(rf"\b{re.escape(kw)}\b", re.IGNORECASE | re.ASCII)
-                else:
-                    pattern = re.compile(re.escape(kw), re.IGNORECASE)
+                pattern = re.compile(rf"\b{re.escape(kw)}\b" if is_english else re.escape(kw), re.IGNORECASE)
                 
-                matches = pattern.finditer(text)
-                match_count = 0
-                
-                for m in matches:
-                    match_count += 1
-                    # 擷取上下文 (前後 30 個字)
-                    start = max(0, m.start() - 30)
-                    end = min(len(text), m.end() + 30)
-                    context = text[start:end].replace("\n", " ")
+                matches = list(pattern.finditer(text))
+                if matches:
+                    # 1. 記錄次數
+                    page_hits.append({'Keyword': kw, 'Page': page_num, 'Count': len(matches)})
                     
-                    if match_count <= 3: # 每個關鍵字每頁最多記錄 3 個證據，避免報表過大
+                    # 2. 記錄證據與分類
+                    category = self.kw_to_category.get(kw, "Unknown")
+                    for m in matches[:3]: # 每頁最多 3 筆證據
+                        start = max(0, m.start() - 40)
+                        end = min(len(text), m.end() + 40)
+                        context = text[start:end].replace("\n", " ")
                         evidence.append({
                             'Keyword': kw,
+                            'Category': category, # 新增分類標籤
                             'Page': page_num,
                             'Context': f"...{context}..."
                         })
-                
-                if match_count > 0:
-                    page_hits.append({
-                        'Keyword': kw,
-                        'Page': page_num,
-                        'Count': match_count
-                    })
         
         return pd.DataFrame(page_hits), pd.DataFrame(evidence)
 
     def calculate_metrics(self, df: pd.DataFrame):
-        """計算原本的統計指標"""
         kw_cols = [col for col in df.columns if col not in ['company', 'total_pages']]
         for col in kw_cols:
             df[f'ln_{col}'] = np.log1p(df[col].astype(float))

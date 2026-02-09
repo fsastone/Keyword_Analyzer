@@ -2,17 +2,18 @@ from google import genai
 from google.genai import types
 from .config import GEMINI_API_KEY, GEMINI_MODEL_NAME
 import logging
-import json
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger("GEMINI_API")
 
 class LLMService:
-    """Gemini API 封裝，用於處理文件分段與分析"""
+    """Gemini API 封裝，支持 Token 使用量統計"""
     
     def __init__(self):
         if not GEMINI_API_KEY:
             raise ValueError("未設定 GOOGLE_API_KEY 環境變數")
         self.client = genai.Client(api_key=GEMINI_API_KEY)
+        self.total_prompt_tokens = 0
+        self.total_candidate_tokens = 0
 
     def segment_chapters(self, text_preview: str):
         """
@@ -44,7 +45,21 @@ class LLMService:
                     }
                 )
             )
-            return response.parsed
+            
+            # 累加 Token 使用量
+            usage = response.usage_metadata
+            self.total_prompt_tokens += usage.prompt_token_count
+            self.total_candidate_tokens += usage.candidates_token_count
+            
+            return response.parsed, usage
         except Exception as e:
             logger.error(f"LLM 分段失敗: {e}")
-            return None
+            return None, None
+
+    def get_usage_report(self):
+        """獲取累計 Token 報告"""
+        return {
+            "Prompt Tokens": self.total_prompt_tokens,
+            "Completion Tokens": self.total_candidate_tokens,
+            "Total Tokens": self.total_prompt_tokens + self.total_candidate_tokens
+        }
