@@ -70,7 +70,7 @@ def main():
                         'Chapter_Title': title
                     })
             if usage_info:
-                logger.info(f"LLM 消耗 Token: {usage_info.total_token_count}")
+                logger.info(f"LLM 消耗: {usage_info['total']} tokens (P: {usage_info['prompt']}, C: {usage_info['completion']})")
 
         # 3. 熱點與位置分析
         hotspot_df, evidence_df = analyzer.analyze_with_positions(pages_data)

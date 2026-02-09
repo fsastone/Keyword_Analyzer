@@ -46,7 +46,6 @@ class ReportGenerator:
                 if not evidence_df.empty:
                     evidence_df.to_excel(writer, index=False, sheet_name='Context_Evidence')
             
-            # 僅顯示路徑末端以保持整潔
             display_path = str(output_path)
             if len(display_path) > 40:
                 display_path = "..." + display_path[-37:]
@@ -57,11 +56,27 @@ class ReportGenerator:
             return None
 
     def _apply_heatmap(self, ws, max_row, max_col):
+        """套用 Excel 色階格式：按列(Row)進行分析，並跳過全為 0 的列"""
         color_scale_rule = ColorScaleRule(
-            start_type='min', start_color='FFFFFF',
-            mid_type='percentile', mid_value=50, mid_color='FFFF00',
-            end_type='max', end_color='FF0000'
+            start_type='num', start_value=0, start_color='FFFFFF', # 0 為白色
+            mid_type='percentile', mid_value=50, mid_color='FFFF00', # 50% 為黃色
+            end_type='max', end_color='FF0000' # 最大值為紅色
         )
+        
         for row_idx in range(2, max_row + 1):
-            addr = f"{get_column_letter(2)}{row_idx}:{get_column_letter(max_col)}{row_idx}"
+            # 檢查該列的值，確定最大值是否大於 0
+            row_max = 0
+            for col_idx in range(2, max_col + 1):
+                val = ws.cell(row=row_idx, column=col_idx).value
+                if val and isinstance(val, (int, float)):
+                    if val > row_max:
+                        row_max = val
+            
+            # 如果整列最大值是 0，則不需要套用色階 (保持白色)
+            if row_max == 0:
+                continue
+                
+            first_col = get_column_letter(2)
+            last_col = get_column_letter(max_col)
+            addr = f"{first_col}{row_idx}:{last_col}{row_idx}"
             ws.conditional_formatting.add(addr, color_scale_rule)

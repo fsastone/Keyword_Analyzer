@@ -48,10 +48,17 @@ class LLMService:
             
             # 累加 Token 使用量
             usage = response.usage_metadata
-            self.total_prompt_tokens += usage.prompt_token_count
-            self.total_candidate_tokens += usage.candidates_token_count
+            p_tokens = usage.prompt_token_count or 0
+            c_tokens = usage.candidates_token_count or 0
             
-            return response.parsed, usage
+            self.total_prompt_tokens += p_tokens
+            self.total_candidate_tokens += c_tokens
+            
+            return response.parsed, {
+                "prompt": p_tokens,
+                "completion": c_tokens,
+                "total": p_tokens + c_tokens
+            }
         except Exception as e:
             logger.error(f"LLM 分段失敗: {e}")
             return None, None
