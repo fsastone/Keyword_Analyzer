@@ -1,38 +1,44 @@
 import pandas as pd
 from openpyxl.utils import get_column_letter
 from openpyxl.formatting.rule import ColorScaleRule
-from .config import OUTPUT_DIR, REPORT_FILENAME
+from .config import OUTPUT_DIR
 import logging
 
 logger = logging.getLogger("REPORTER")
 
 class ReportGenerator:
-    """生成包含多維度分析與章節結構的專業報表"""
+    """針對單一 PDF 生成專業報表"""
 
     def __init__(self):
-        self.output_path = OUTPUT_DIR / REPORT_FILENAME
+        self.output_dir = OUTPUT_DIR
 
-    def generate(self, summary_df, heatmap_df, evidence_df, chapter_df):
+    def generate(self, company_name, summary_df, heatmap_df, evidence_df, chapter_df):
         """
-        summary_df: 總結統計
-        heatmap_df: 頁碼矩陣
-        evidence_df: 上下文證據 (帶分類)
-        chapter_df: LLM 識別出的報告章節結構
+        為特定的公司生成獨立報表
         """
+        output_path = self.output_dir / f"{company_name}_analysis.xlsx"
+        
         try:
-            with pd.ExcelWriter(self.output_path, engine='openpyxl') as writer:
+            with pd.ExcelWriter(output_path, engine='openpyxl') as writer:
                 # 1. Summary
                 summary_df.to_excel(writer, index=False, sheet_name='Summary')
                 
-                # 2. Report Structure (新：LLM 識別的章節)
+                # 2. Report Structure
                 if not chapter_df.empty:
                     chapter_df.to_excel(writer, index=False, sheet_name='Report_Chapters')
                 
                 # 3. Hotspot Matrix
                 if not heatmap_df.empty:
+                    # 獲取摘要頁中的所有關鍵字 (排除統計指標)
+                    all_keywords = [col for col in summary_df.columns if col not in ['company', 'total_pages'] and not col.startswith('ln_') and col not in ['dist_skewness', 'total_mentions']]
+                    
                     matrix = heatmap_df.pivot_table(
                         index='Keyword', columns='Page', values='Count', fill_value=0
                     )
+                    
+                    # 強制重新索引，確保所有關鍵字都出現在矩陣中
+                    matrix = matrix.reindex(all_keywords, fill_value=0)
+                    
                     matrix.to_excel(writer, sheet_name='Hotspot_Matrix')
                     self._apply_heatmap(writer.sheets['Hotspot_Matrix'], matrix.shape[0]+1, matrix.shape[1]+1)
                 
@@ -40,12 +46,15 @@ class ReportGenerator:
                 if not evidence_df.empty:
                     evidence_df.to_excel(writer, index=False, sheet_name='Context_Evidence')
             
-            display_path = str(self.output_path)
+            # 僅顯示路徑末端以保持整潔
+            display_path = str(output_path)
             if len(display_path) > 40:
                 display_path = "..." + display_path[-37:]
-            logger.info(f"專業報表已生成: {display_path}")
+            logger.info(f"報表已生成: {display_path}")
+            return output_path
         except Exception as e:
-            logger.error(f"報表生成失敗: {e}")
+            logger.error(f"報表生成失敗 ({company_name}): {e}")
+            return None
 
     def _apply_heatmap(self, ws, max_row, max_col):
         color_scale_rule = ColorScaleRule(
