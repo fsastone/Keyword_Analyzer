@@ -1,4 +1,10 @@
-.venv/
+.env
+__pycache__/
+output/
 bin/
+raw_pdfs/archive/
+raw_pdfs/ocr_needed/
+.venv/
+.vscode/
 *.xlsx
 *.pdf
