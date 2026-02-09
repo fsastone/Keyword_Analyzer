@@ -1,0 +1,7 @@
+pdf2image       # 將 PDF 轉為圖片 (解決排版亂掉的問題)
+pytesseract     # 呼叫 Tesseract OCR 引擎
+pandas          # 數據處理與統計
+numpy           # 數學運算 (ln)
+openpyxl        # 輸出 Excel
+tqdm            # 進度條顯示
+pypdf           # 讀取 pdf
