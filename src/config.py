@@ -42,4 +42,4 @@ REPORT_FILENAME = "esg_tech_keyword_analysis.xlsx"
 # 測試/開發設定
 # 設定提取的頁數限制，None 代表提取全部頁面
 # 若要節省 token 與時間，可設定為小數字 (例如 5)
-MAX_PAGES_TO_EXTRACT = 5
+MAX_PAGES_TO_EXTRACT = None

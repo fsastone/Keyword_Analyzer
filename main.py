@@ -4,79 +4,70 @@ from tqdm import tqdm
 import pandas as pd
 import json
 
-from src.config import RAW_PDFS_DIR, KEYWORDS, MAX_PAGES_TO_EXTRACT
+from src.config import RAW_PDFS_DIR, MAX_PAGES_TO_EXTRACT
 from src.text_extractor import TextExtractor
 from src.llm_service import LLMService
 from src.analyzer import KeywordAnalyzer
 from src.file_manager import FileManager
 from src.report_generator import ReportGenerator
 
-# 設定日誌
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
 def main():
-    logger.info("=== ESG 關鍵字分析系統啟動 ===")
+    logger.info("=== ESG 關鍵字進階分析系統啟動 ===")
     
-    # 初始化組件
     extractor = TextExtractor()
     llm = LLMService()
     analyzer = KeywordAnalyzer()
     file_manager = FileManager()
     reporter = ReportGenerator()
     
-    # 獲取輸入檔案
     pdf_files = file_manager.get_input_files(RAW_PDFS_DIR)
     if not pdf_files:
-        logger.warning(f"在 {RAW_PDFS_DIR} 中找不到 PDF 檔案。")
+        logger.warning("找不到 PDF 檔案。")
         return
 
-    all_results = []
+    summary_records = []
+    all_hotspot_data = []
+    all_evidence_data = []
 
-    for pdf_path in tqdm(pdf_files, desc="處理 PDF"):
-        logger.info(f"正在處理: {pdf_path.name}")
-        
-        # 1. 提取文字 (可透過 config 限制頁數以節省 token)
-        full_text = extractor.extract_text(pdf_path, max_pages=MAX_PAGES_TO_EXTRACT)
-        if not extractor.validate_text(full_text):
-            logger.warning(f"檔案 {pdf_path.name} 文字內容過少，移至 OCR 待處理區。")
+    for pdf_path in tqdm(pdf_files, desc="分析中"):
+        # 1. 提取分頁文字
+        pages_data = extractor.extract_text_by_pages(pdf_path, max_pages=MAX_PAGES_TO_EXTRACT)
+        if not extractor.validate_text(pages_data):
             file_manager.mark_as_ocr_needed(pdf_path)
             continue
             
-        # 2. 利用 LLM 進行章節識別 (模擬分段)
-        # 這裡我們取前 5 頁來識別目錄
-        preview_text = full_text[:5000] # 粗略取前段
-        chapters = llm.segment_chapters(preview_text)
-        if chapters:
-            logger.info(f"識別到章節: {json.dumps(chapters, ensure_ascii=False)}")
+        # 2. 熱點與位置分析
+        hotspot_df, evidence_df = analyzer.analyze_with_positions(pages_data)
         
-        # 3. 關鍵字統計 (依照類別)
-        detailed_counts = analyzer.count_keywords(full_text)
+        # 3. 彙整總體數據
+        if not hotspot_df.empty:
+            # 統計該檔案的各關鍵字總數
+            total_counts = hotspot_df.groupby('Keyword')['Count'].sum().to_dict()
+            record = {'company': pdf_path.stem, 'total_pages': len(pages_data)}
+            record.update(total_counts)
+            summary_records.append(record)
+            
+            # 標註公司名稱後彙整
+            hotspot_df['Company'] = pdf_path.stem
+            evidence_df['Company'] = pdf_path.stem
+            all_hotspot_data.append(hotspot_df)
+            all_evidence_data.append(evidence_df)
         
-        # 彙整結果
-        record = {
-            'company': pdf_path.stem,
-            'total_pages': len(full_text) // 2000, # 粗略估計
-        }
-        
-        # 展開所有類別的關鍵字計數
-        for category, kws in detailed_counts.items():
-            for kw, count in kws.items():
-                record[kw] = count
-        
-        all_results.append(record)
-        
-        # 4. 檔案歸檔
         file_manager.archive_file(pdf_path)
 
-    # 5. 生成報表
-    if all_results:
-        df = pd.DataFrame(all_results)
-        df = analyzer.calculate_metrics(df)
-        reporter.generate(df)
-        logger.info("分析任務全部完成。")
-    else:
-        logger.info("沒有可分析的數據。")
+    # 4. 生成報表
+    if summary_records:
+        df_summary = pd.DataFrame(summary_records)
+        df_summary = analyzer.calculate_metrics(df_summary)
+        
+        df_hotspot = pd.concat(all_hotspot_data) if all_hotspot_data else pd.DataFrame()
+        df_evidence = pd.concat(all_evidence_data) if all_evidence_data else pd.DataFrame()
+        
+        reporter.generate(df_summary, df_hotspot, df_evidence)
+        logger.info("分析完成！")
 
 if __name__ == "__main__":
     main()
