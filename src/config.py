@@ -1,4 +1,5 @@
 import os
+import json
 from pathlib import Path
 from dotenv import load_dotenv
 
@@ -16,28 +17,32 @@ OUTPUT_DIR = BASE_DIR / "output"
 for path in [RAW_PDFS_DIR, ARCHIVE_DIR, OCR_NEEDED_DIR, OUTPUT_DIR]:
     path.mkdir(parents=True, exist_ok=True)
 
+# 關鍵字定義路徑
+KEYWORD_DICT_PATH = Path(__file__).resolve().parent / "keyword_dictionary.json"
+
+# 載入概念字典 (Taxonomy)
+if KEYWORD_DICT_PATH.exists():
+    with open(KEYWORD_DICT_PATH, 'r', encoding='utf-8') as f:
+        KEYWORD_DICT = json.load(f)
+else:
+    KEYWORD_DICT = {}
+
 # Gemini 設定
 GEMINI_API_KEY = os.getenv("GOOGLE_API_KEY")
 GEMINI_MODEL_NAME = "gemini-2.5-flash"  # 使用使用者要求的版本
 
-# 關鍵字定義
-KEYWORDS = {
-    "Environmental": [
-        "碳中和", "淨零", "減碳", "再生能源", "綠能", "節能", "水資源", "廢棄物", "循環經濟", "氣候變遷"
-    ],
-    "Social": [
-        "員工福利", "人權", "性別平等", "職業安全", "社區參與", "人才培訓", "多元包容", "隱私保護"
-    ],
-    "Governance": [
-        "董事會", "商業道德", "誠信經營", "反貪腐", "風險管理", "供應鏈管理", "股東權益", "法規遵循"
-    ],
-    "Tech/Innovation": [
-        "人工智慧", "AI", "機器學習", "數位轉型", "物聯網", "IoT", "自動化", "大數據", "雲端運算"
-    ]
-}
-
 # 報表設定
 REPORT_FILENAME = "esg_tech_keyword_analysis.xlsx"
+
+# 手動章節範圍設定 (若 LLM 識別不精確時使用)
+# 格式為 { "公司名稱": { "E": {"start": 10, "end": 20}, ... } }
+ESG_CHAPTER_OVERRIDES = {
+    "範例公司_2023_ESG報告": {
+        "E": {"start": 5, "end": 40},
+        "S": {"start": 41, "end": 70},
+        "G": {"start": 71, "end": 90}
+    }
+}
 
 # 測試/開發設定
 # 設定提取的頁數限制，None 代表提取全部頁面

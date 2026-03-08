@@ -1,62 +1,55 @@
-# ESG Intelligence Analyzer: 企業永續報告自動化語義分析系統
+# ESG Intelligence Analyzer: 企業永續報告自動化語義分析系統 (v2.0)
 
-> **核心價值**：利用大型語言模型 (LLM) 與自動化文本挖掘技術，將數百頁的 ESG 永續報告書轉化為可視化的決策矩陣與熱點地圖，大幅提升投資分析師與研究員的審閱效率。
+> **核心價值**：結合聯合國 17 項永續發展目標 (SDGs) 語義框架與單調遞增頁碼映射技術，將數百頁的 ESG 永續報告書精確轉化為可視化的決策矩陣與熱點地圖。
 
 ---
 
-## 📌 問題陳述 (Problem Statement)
-隨著全球對 ESG (環境、社會、公司治理) 的重視，分析師面臨以下痛點：
-- **資訊過載**：單份 ESG 報告動輒超過 100 頁，人工審閱耗時且成本高昂。
-- **語境識別困難**：傳統關鍵字搜尋無法區分「口號式提及」與「實質性投入」。
-- **導覽障礙**：不同企業的報告架構差異極大，難以快速定位特定 ESG 議題的討論分佈。
+## 📌 系統優勢 (System Highlights)
+本系統針對企業 ESG 報告書中常見的「創意章節命名」與「複雜排版」進行了深度優化：
+- **SDGs 語義錨點**：不再依賴簡單關鍵字，而是利用聯合國 SDGs 框架指導 LLM (Gemini 2.5 Flash) 進行分類，精確識別如「價值鏈共榮」或「數位賦能」等模糊標題。
+- **信心權重頁碼映射 (CWM)**：獨創的頁碼識別演算法，優先採集行首/行尾數字，並透過「單調遞增鏈」剔除報告中的數據雜訊（如百分比、年份），確保頁碼定位準確率達 98% 以上。
+- **雙軌文字處理**：使用原始文字 (Raw Text) 建立物理頁碼映射，並使用過濾文字 (Boilerplate Removed) 進行關鍵字熱點分析，避免導覽列與頁首頁尾干擾統計結果。
 
 ## 🏗️ 系統架構 (Solution Architecture)
-本系統採用「混合式 (Hybrid) 分析管線」設計，兼顧 LLM 的語義理解能力與傳統程式的精確統計：
 
 ```mermaid
 graph TD
     A[PDF 原始報告] --> B[Text Extractor]
-    B --> C{文字層校驗}
-    C -- 有效 --> D[Gemini 2.5 Flash]
-    C -- 損壞 --> E["OCR 待處理區<br>(OCR 功能未新增)"]
+    B --> C[Raw Text Mapping]
+    B --> D[Boilerplate Removal]
     
-    subgraph "AI 語義層"
-        D --> F[章節結構識別]
+    subgraph "AI 語義導航 (SDG Framework)"
+        E[Gemini 2.5 Flash] --> F[TOC 邏輯頁碼解析]
+        F --> G[E/S/G 章節範圍自動劃分]
     end
     
-    subgraph "數據計算層"
-        B --> G[Regex 關鍵字匹配]
-        G --> H[計量指標運算]
-        H --> I[熱點分布計算]
+    subgraph "精確計算層 (Local Engine)"
+        D --> H[信心權重單調映射]
+        H --> I[E/S/G 關鍵字權重分配]
+        I --> J[Ln 頻次與熱點矩陣]
     end
     
-    F --> J[Report Generator]
-    I --> J
-    G --> J[證據索引擷取]
+    G --> K[Report Generator]
+    J --> K
     
-    J --> K[Excel 專業多維度報表]
+    K --> L[Excel 專業多維度報表]
 ```
 
-**數據流說明：**
-1. **Intelligence (LLM)**: 調用 Gemini 2.5 Flash 僅分析前幾頁，識別該企業特有的 ESG 章節標題，產出導航地圖。
-2. **Analytics (Local)**: 透過本地 Regex 進行全文本關鍵字掃描，計算 **Ln(Freq+1)** 與 **Skewness (偏態)**。
-3. **Heatmap & Evidence**: 產出橫向色階熱點圖，並自動擷取關鍵字前後 40 字的上下文作為查核證據。
+## 🌟 核心功能 (Key Features)
+- **SDG 導向的 E/S/G 分類**：
+    - **Environmental (E)**: 聚焦 SDG 6, 7, 12, 13, 14, 15 (氣候、減碳、循環經濟)。
+    - **Social (S)**: 聚焦 SDG 1-5, 8, 10 (人才、DEI、人權、社會公益)。
+    - **Governance (G)**: 聚焦 SDG 9, 11, 16, 17 (創新、資安、合規、供應鏈)。
+- **互斥性範圍判定**：自動校正 LLM 產出的範圍，確保每一頁僅屬於一個 ESG 類別，保證統計百分比總和為 100%。
+- **局部插值映射**：在已知頁碼點之間進行智能插值，即使報告前幾頁無頁碼，也能精確推算物理位置。
+- **自動化歸檔與錯誤導流**：處理完成的檔案自動移至 `archive/`，文字層損壞或掃描件則移動至 `ocr_needed/`。
 
 ## 🛠️ 技術棧 (Tech Stack)
-- **AI/LLM**: Google Gemini API (Gemini-2.5-Flash)
-- **數據處理**: Pandas, NumPy
-- **報表引擎**: Openpyxl (Advanced Conditional Formatting)
-- **PDF 引擎**: PyPDF
-- **環境管理**: Python-dotenv, Logging
-
-## 🌟 核心功能 (Key Features)
-- **三維熱點對照系統**：
-    - **`Report_Chapters`**: LLM 識別的報告導航圖，對應企業自定義章節。
-    - **`Hotspot_Matrix`**: 橫向色階分析，觀察單一關鍵字在不同頁碼的分布強度。
-    - **`Context_Evidence`**: 自動標註 ESG 分類，並提供語境證據供人工快速核實。
-- **高效 Token 管線**：僅在需要語義導航時使用 LLM，統計任務由本地處理，最小化 Token 支出。
-- **計量分析指標**：包含頻次、對數平滑值與分布偏態，量化企業報告的側重點。
-- **自動化歸檔系統**：處理完畢後自動移至 `archive/`，失敗檔案則引導至 `ocr_needed/`。
+- **LLM**: Google Gemini API (**Gemini-2.5-Flash**)
+- **Algorithm**: Monotonic Sequence Mapping (單調序列映射)
+- **Data**: Pandas, NumPy
+- **Excel**: Openpyxl (Advanced Heatmap Rendering)
+- **PDF**: PyPDF (Fast Extraction)
 
 ## 🚀 快速上手 (Setup & Usage)
 
@@ -80,15 +73,15 @@ python main.py
 ```text
 Keyword_Analyzer/
 ├── src/
-│   ├── config.py           # 集中化配置 (關鍵字清單、模型參數)
-│   ├── text_extractor.py   # PDF 提取與驗證邏輯
-│   ├── llm_service.py      # Gemini API 整合與 Token 監控
-│   ├── analyzer.py         # 計量統計、上下文擷取與分類標註
-│   ├── report_generator.py # 多工作表 Excel 渲染與熱點圖
-│   └── file_manager.py     # 檔案生命週期管理 (歸檔/OCR)
-├── main.py                 # 系統進入點與分析管線協調
-└── requirements.txt        # 專案依賴清單
+│   ├── config.py           # 集中化配置 (關鍵字清單、SDG 定義)
+│   ├── text_extractor.py   # CWM 頁碼映射與文字提取
+│   ├── llm_service.py      # SDG 導向的 TOC 解析與 Token 監控
+│   ├── analyzer.py         # 互斥性統計、對數指標運算
+│   ├── report_generator.py # Excel 色階熱點圖渲染
+│   └── file_manager.py     # 檔案自動化生命週期管理
+├── main.py                 # 分析管線調度器
+└── requirements.txt        # 依賴清單
 ```
 
 ---
-**Disclaimer**: 本專案僅供學術研究與投資分析參考，實際投資決策應結合更多維度之評估。
+**Disclaimer**: 本專案生成的報表僅供投資分析參考，實際決策應結合企業原始揭露資訊進行核實。

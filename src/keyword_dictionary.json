@@ -1,0 +1,37 @@
+{
+  "AI 技術": {
+    "智慧物聯網": ["智慧物聯", "AIoT"],
+    "人工智慧": ["人工智慧", "Artificial Intelligence", "AI", "GPT"],
+    "資料中心": ["資料中心", "Data Center", "IDC"],
+    "工業4.0": ["Industry 4.0"],
+    "智慧決策": ["智慧決策", "Intelligent decision-making"],
+    "智慧化": ["智慧化", "智能化", "Intelligent", "Smart"],
+    "機器人": ["機器人"],
+    "機器學習": ["機器學習", "Machine learning", "ML"],
+    "深度學習": ["深度學習", "Deep Learning" , "DL"],
+    "邊緣運算": ["邊緣運算"],
+    "運算": ["運算", "算力"],
+    "資料探勘": ["資料探勘", "Data mining"],
+    "大型語言模型": ["大型語言模型", "LLM"],
+    "自然語言處理": ["自然語言處理", "NLP"],
+    "影像辨識": ["影像辨識", "視覺辨識", "光學字元辨識", "OCR"],
+    "類神經網路": ["類神經網路", "CNN"],
+    "數位孿生": ["數位孿生", "數位模擬", "元宇宙"],
+    "預測模型": ["預測模型", "預測分析", "Predictive modeling", "Predictive analytics"],
+    "流程優化": ["流程優化", "Process optimization"]
+  },
+  "數位科技": {
+    "感測技術": ["感測技術", "Sensing"],
+    "訊號處理": ["訊號處理", "Signal Processing"],
+    "處理器": ["處理器"],
+    "5G": ["5G", "6G"],
+    "數據機": ["數據機", "數據晶片"],
+    "大數據分析": ["大數據分析", "數據分析", "Big data analysis", "analytics"],
+    "數位化": ["數位化", "Digitization"],
+    "數位轉型": ["數位轉型", "Digital Transformation"],
+    "自動化": ["自動化", "Automation"],
+    "雲端": ["雲端", "Cloud"],
+    "區塊鏈": ["區塊鏈", "Blockchain"],
+    "AR": ["AR", "VR"]
+  }
+}

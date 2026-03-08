@@ -63,6 +63,193 @@ class LLMService:
             logger.error(f"LLM 分段失敗: {e}")
             return None, None
 
+    def parse_esg_toc(self, toc_text: str, total_pdf_pages: int, mapping: dict = None) -> dict:
+        """
+        利用 LLM 分析 PDF 前 15 頁文字，識別 E、S、G 章節的頁碼範圍。
+        mapping: {邏輯頁碼: PDF物理頁碼}
+        """
+        # 尋找合理的最後一頁邏輯頁碼 (從最後 5% 的頁面中尋找最大值)
+        max_logical_page = total_pdf_pages
+        if mapping:
+            last_few_pages_threshold = int(total_pdf_pages * 0.95)
+            end_logical_nums = [l for l, p in mapping.items() if p >= last_few_pages_threshold]
+            if end_logical_nums:
+                max_logical_page = max(end_logical_nums)
+            else:
+                # 備案：如果最後沒找到，找全域最大值但限制在合理範圍內 (例如物理頁數的 2.5 倍)
+                max_logical_page = min(max(mapping.keys()), total_pdf_pages * 3)
+        
+        prompt = f"""
+        你是一位專業的 ESG 報告分析師。請從以下目錄 (TOC) 內容中，精確識別出環境 (E)、社會 (S) 及公司治理 (G) 各類別所對應的**報告邏輯頁碼**範圍。
+
+        【分析目標】
+        1. 根據目錄標題關鍵字分配報告中所標註的頁碼（邏輯頁碼）。
+        2. **盡可能識別出所有大章節與二級子章節的起始頁碼**，這有助於定位。
+        3. 起始頁碼為目錄中該章節標註的數字。
+        4. 結束頁碼應為「下一個同級或更高層級章節起始頁碼減 1」。報告最後一頁為第 {max_logical_page} 頁。
+        5. **重要規則：互斥性**。各類別 (E/S/G) 之間的頁碼範圍**絕對不能重疊**。請根據章節順序嚴格分配。
+
+        【分類架構：聯合國 17 項永續發展目標 (SDGs)】
+        請依據以下 SDGs 語義架構歸類：
+        - 環境 (E): SDG 6, 7, 12, 13, 14, 15 (氣候、減碳、資源、生態、綠色製造)
+        - 社會 (S): SDG 1, 2, 3, 4, 5, 8, 10 (人才、健康、教育、DEI、公益、社會影響力、包容職場)
+        - 公司治理 (G): SDG 9, 11, 16, 17 (創新、資安、誠信、風控、供應鏈、利害關係人、營運模式、責任採購)
+
+        【輸出格式】
+        必須輸出 JSON，包含 "analysis" 以及 E, S, G 的邏輯頁碼範圍。
+        範例：
+        {{
+          "analysis": "CH4(94-109)屬G；CH5(102-161)屬E；CH6(162-193)屬S；CH7(194-213)屬G...",
+          "E": [ {{"start": 102, "end": 161}} ], 
+          "S": [ {{"start": 162, "end": 193}}, {{"start": 214, "end": 255}} ], 
+          "G": [ {{"start": 14, "end": 101}}, {{"start": 194, "end": 213}} ]
+        }}
+
+        【待分析文本內容】
+        {toc_text}
+        """
+        
+        try:
+            range_schema = {
+                "type": "ARRAY",
+                "items": {
+                    "type": "OBJECT",
+                    "properties": {
+                        "start": {"type": "INTEGER"},
+                        "end": {"type": "INTEGER"}
+                    },
+                    "required": ["start", "end"]
+                }
+            }
+            
+            response = self.client.models.generate_content(
+                model=GEMINI_MODEL_NAME,
+                contents=prompt,
+                config=types.GenerateContentConfig(
+                    response_mime_type="application/json",
+                    response_schema={
+                        "type": "OBJECT",
+                        "properties": {
+                            "analysis": {"type": "STRING"},
+                            "E": range_schema,
+                            "S": range_schema,
+                            "G": range_schema
+                        },
+                        "required": ["analysis", "E", "S", "G"]
+                    }
+                )
+            )
+            
+            # 累加 Token 使用量
+            usage = response.usage_metadata
+            self.total_prompt_tokens += usage.prompt_token_count or 0
+            self.total_candidate_tokens += usage.candidates_token_count or 0
+            
+            # 獲取 JSON 結果
+            result = response.parsed
+            logger.info(f"LLM TOC 邏輯頁碼分析結果: {result.get('analysis')}")
+            
+            # 將邏輯頁碼轉換為物理頁碼 (PDF 頁序)
+            final_result = {"analysis": result.get("analysis")}
+            for section in ["E", "S", "G"]:
+                valid_physical_ranges = []
+                logical_ranges = result.get(section, [])
+                logger.debug(f"原始 {section} 邏輯範圍: {logical_ranges}")
+                
+                for r in logical_ranges:
+                    l_start = r.get("start", 0)
+                    l_end = r.get("end", 0)
+                    
+                    p_start = self._map_to_physical(l_start, mapping, total_pdf_pages)
+                    p_end = self._map_to_physical(l_end, mapping, total_pdf_pages)
+                    
+                    if 0 < p_start <= p_end <= total_pdf_pages:
+                        valid_physical_ranges.append({"start": p_start, "end": p_end})
+                
+                # 合併重疊或連續的物理範圍
+                merged_ranges = self._merge_ranges(valid_physical_ranges)
+                final_result[section] = merged_ranges
+                if merged_ranges:
+                    logger.info(f"識別出 {section} 物理範圍: {merged_ranges}")
+                    
+            return final_result
+        except Exception as e:
+            logger.error(f"LLM 解析 TOC 失敗: {e}")
+            return {"analysis": "Error", "E": [], "S": [], "G": []}
+
+    def _merge_ranges(self, ranges: list) -> list:
+        """合併重疊或相鄰的頁碼範圍"""
+        if not ranges:
+            return []
+        # 按起始頁碼排序
+        sorted_ranges = sorted(ranges, key=lambda x: x['start'])
+        merged = [sorted_ranges[0]]
+        for current in sorted_ranges[1:]:
+            prev = merged[-1]
+            if current['start'] <= prev['end'] + 1:
+                prev['end'] = max(prev['end'], current['end'])
+            else:
+                merged.append(current)
+        return merged
+
+    def _map_to_physical(self, logical_page: int, mapping: dict, total_pdf_pages: int) -> int:
+        """將報告印出的頁碼轉換為 PDF 檔案的實際頁碼，採用局部插值法"""
+        if not logical_page:
+            return 0
+        
+        if not mapping:
+            # 沒數據時，嘗試判斷是否為 2-up
+            if logical_page > total_pdf_pages * 1.1:
+                return max(1, min(int(logical_page / 2), total_pdf_pages))
+            return max(1, min(logical_page, total_pdf_pages))
+
+        sorted_logical = sorted(mapping.keys())
+        
+        # 1. 精確匹配
+        if logical_page in mapping:
+            return mapping[logical_page]
+            
+        # 2. 局部插值
+        # 找到 logical_page 兩側最近的點
+        lower_idx = -1
+        for i, l_val in enumerate(sorted_logical):
+            if l_val < logical_page:
+                lower_idx = i
+            else:
+                break
+        
+        if lower_idx == -1:
+            # 在所有點之前：根據第一個點和假設斜率外推
+            first_l = sorted_logical[0]
+            first_p = mapping[first_l]
+            # 判斷斜率：如果整體呈現 2-up 特徵 (Max Logic > Total Physical * 1.2)
+            is_2up = sorted_logical[-1] > total_pdf_pages * 1.1
+            slope = 0.5 if is_2up else 1.0
+            est_p = first_p - (first_l - logical_page) * slope
+            return max(1, min(int(est_p), total_pdf_pages))
+            
+        if lower_idx == len(sorted_logical) - 1:
+            # 在所有點之後：根據最後一個點外推
+            last_l = sorted_logical[-1]
+            last_p = mapping[last_l]
+            is_2up = sorted_logical[-1] > total_pdf_pages * 1.1
+            slope = 0.5 if is_2up else 1.0
+            est_p = last_p + (logical_page - last_l) * slope
+            return max(1, min(int(est_p), total_pdf_pages))
+            
+        # 在兩個點之間插值
+        l1, l2 = sorted_logical[lower_idx], sorted_logical[lower_idx+1]
+        p1, p2 = mapping[l1], mapping[l2]
+        
+        # 計算局部斜率 (若分母為 0 則回傳 p1)
+        if l2 != l1:
+            slope = (p2 - p1) / (l2 - l1)
+            # 限制斜率在合理範圍 (0.3 ~ 1.5)，防止極端跳躍
+            slope = max(0.3, min(1.5, slope))
+            est_p = p1 + (logical_page - l1) * slope
+            return max(1, min(int(est_p), total_pdf_pages))
+        return p1
+
     def get_usage_report(self):
         """獲取累計 Token 報告"""
         return {
