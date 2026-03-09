@@ -63,8 +63,9 @@ def main():
             logger.info(f"偵測到 {company_name} 的手動章節設定，跳過 LLM 解析。")
             esg_ranges = ESG_CHAPTER_OVERRIDES[company_name]
         else:
-            # LLM TOC 解析 (分析前 15 頁文字，暫不開啟 Boilerplate Removal 以免誤刪重要目錄)
-            raw_pages_for_toc, _ = extractor.extract_text_by_pages(pdf_path, max_pages=15, remove_boilerplate=False)
+            # LLM TOC 解析 (分析前 25 頁文字，暫不開啟 Boilerplate Removal 以免誤刪重要目錄)
+            # 增加頁數以防目錄較晚出現
+            raw_pages_for_toc, _ = extractor.extract_text_by_pages(pdf_path, max_pages=25, remove_boilerplate=False)
             
             # Debug: 儲存 TOC 文本供檢查，包含頁碼標記
             toc_text_with_markers = ""
@@ -87,6 +88,7 @@ def main():
                 
                 # 使用 PDF 實際總頁數 (total_pdf_pages) 與 mapping 進行解析
                 esg_ranges = llm.parse_esg_toc(toc_text_for_llm, total_pdf_pages, mapping)
+                logger.info(f"LLM 解析完成。分析摘要: {esg_ranges.get('analysis', 'No analysis')}")
             
         # 整理章節範圍用於報表
         chapter_data = []
@@ -94,6 +96,8 @@ def main():
             ranges = esg_ranges.get(section, [])
             if not ranges:
                 logger.warning(f"公司 {company_name} 的 {section} 章節未識別到任何範圍。")
+            else:
+                logger.info(f"{section} 章節物理頁碼範圍: {ranges}")
             
             for r in ranges:
                 # 確保獲取的是整數

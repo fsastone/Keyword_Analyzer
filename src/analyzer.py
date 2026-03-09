@@ -46,10 +46,18 @@ class KeywordAnalyzer:
         # 遍歷每一頁進行統計
         for page in pages_data:
             page_num = page['page_num']
-            text = page['content']
+            raw_text = page['content']
             
-            # 判斷當前頁面屬於哪個 ESG 區塊 (互斥分配以確保百分比總和為 100%)
-            # 若有重疊，優先順序為 E > S > G
+            # 文字預處理：將換行符號替換為空格，並壓縮多餘空格，
+            # 同時針對中文移除字與字之間的空格（解決 pypdf 提取問題）
+            # 1. 換行轉空格
+            text_normalized = raw_text.replace('\n', ' ')
+            # 2. 壓縮空格
+            text_normalized = re.sub(r'\s+', ' ', text_normalized)
+            # 3. 針對中文特化處理：如果兩個中文字之間有空格，則移除該空格
+            text_for_chinese = re.sub(r'([\u4e00-\u9fa5])\s+([\u4e00-\u9fa5])', r'\1\2', text_normalized)
+            
+            # 判斷當前頁面屬於哪個 ESG 區塊
             matched_section = None
             for section in ["E", "S", "G"]:
                 ranges = esg_ranges.get(section, [])
@@ -66,17 +74,21 @@ class KeywordAnalyzer:
                 
                 if in_range:
                     matched_section = section
-                    break # 找到第一個匹配即停止，確保互斥
+                    break
             
             for (category, main_item), data in results.items():
                 page_item_count = 0
                 for variant in data['variants']:
                     is_english = all(ord(c) < 128 for c in variant)
                     if is_english:
+                        # 英文使用 normalized text (含空格)
                         pattern = re.compile(rf"\b{re.escape(variant)}\b", re.IGNORECASE | re.ASCII)
+                        matches = pattern.findall(text_normalized)
                     else:
+                        # 中文使用 special text (移除字間空格)
                         pattern = re.compile(re.escape(variant), re.IGNORECASE)
-                    matches = pattern.findall(text)
+                        matches = pattern.findall(text_for_chinese)
+                    
                     page_item_count += len(matches)
                 
                 if page_item_count > 0:

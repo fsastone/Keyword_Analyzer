@@ -65,20 +65,24 @@ class LLMService:
 
     def parse_esg_toc(self, toc_text: str, total_pdf_pages: int, mapping: dict = None) -> dict:
         """
-        利用 LLM 分析 PDF 前 15 頁文字，識別 E、S、G 章節的頁碼範圍。
-        mapping: {邏輯頁碼: PDF物理頁碼}
+        利用 LLM 分析 PDF 前面頁面文字，識別 E、S、G 章節的頁碼範圍。
         """
-        # 尋找合理的最後一頁邏輯頁碼 (從最後 5% 的頁面中尋找最大值)
+        # 尋找合理的最後一頁邏輯頁碼
         max_logical_page = total_pdf_pages
         if mapping:
-            last_few_pages_threshold = int(total_pdf_pages * 0.95)
-            end_logical_nums = [l for l, p in mapping.items() if p >= last_few_pages_threshold]
-            if end_logical_nums:
-                max_logical_page = max(end_logical_nums)
-            else:
-                # 備案：如果最後沒找到，找全域最大值但限制在合理範圍內 (例如物理頁數的 2.5 倍)
-                max_logical_page = min(max(mapping.keys()), total_pdf_pages * 3)
-        
+            sorted_p = sorted(mapping.values())
+            if sorted_p:
+                last_physical = sorted_p[-1]
+                # 如果最後一個物理點已經接近總頁數，則使用對應的邏輯頁碼
+                if last_physical >= total_pdf_pages * 0.9:
+                    max_logical_page = max(mapping.keys())
+                else:
+                    # 否則根據斜率推算
+                    l_vals = sorted(mapping.keys())
+                    if len(l_vals) >= 2:
+                        slope = (l_vals[-1] - l_vals[0]) / (mapping[l_vals[-1]] - mapping[l_vals[0]])
+                        max_logical_page = int(l_vals[-1] + (total_pdf_pages - last_physical) * slope)
+
         prompt = f"""
         你是一位專業的 ESG 報告分析師。請從以下目錄 (TOC) 內容中，精確識別出環境 (E)、社會 (S) 及公司治理 (G) 各類別所對應的**報告邏輯頁碼**範圍。
 
@@ -88,12 +92,27 @@ class LLMService:
         3. 起始頁碼為目錄中該章節標註的數字。
         4. 結束頁碼應為「下一個同級或更高層級章節起始頁碼減 1」。報告最後一頁為第 {max_logical_page} 頁。
         5. **重要規則：互斥性**。各類別 (E/S/G) 之間的頁碼範圍**絕對不能重疊**。請根據章節順序嚴格分配。
-
-        【分類架構：聯合國 17 項永續發展目標 (SDGs)】
-        請依據以下 SDGs 語義架構歸類：
-        - 環境 (E): SDG 6, 7, 12, 13, 14, 15 (氣候、減碳、資源、生態、綠色製造)
-        - 社會 (S): SDG 1, 2, 3, 4, 5, 8, 10 (人才、健康、教育、DEI、公益、社會影響力、包容職場)
-        - 公司治理 (G): SDG 9, 11, 16, 17 (創新、資安、誠信、風控、供應鏈、利害關係人、營運模式、責任採購)
+        
+        【ESG分類準則】
+        環境, Environmental (E):
+        - SDG 6: Clean Water and Sanitation (水資源管理、污染防治)
+        - SDG 7: Affordable and Clean Energy (綠能、能源轉型)
+        - SDG 12: Responsible Consumption and Production (循環經濟、廢棄物管理、綠色產品)
+        - SDG 13: Climate Action (溫室氣體盤查、減碳策略、氣候變遷)
+        - SDG 14: Life Below Water (海洋生態保育)
+        - SDG 15: Life on Land (陸地生態與生物多樣性)
+        社會, Social (S):
+        - SDG 1 & 2: No Poverty & Zero Hunger (社會公益、弱勢關懷)
+        - SDG 3: Good Health and Well-being (員工健康、職場安全、友善職場)
+        - SDG 4: Quality Education (人才培育、產學合作、教育科技)
+        - SDG 5: Gender Equality (多元包容 DEI、女性主管比例)
+        - SDG 8: Decent Work and Economic Growth (勞動權益、薪資福利)
+        - SDG 10: Reduced Inequalities (人權保障、無歧視)
+        公司治理, Governance (G):
+        - SDG 9: Industry, Innovation and Infrastructure (研發創新、資安管理、數位轉型)
+        - SDG 11: Sustainable Cities and Communities (企業營運韌性、在地深耕)
+        - SDG 16: Peace, Justice and Strong Institutions (公司治理、誠信經營、法規遵循、風險管理)
+        - SDG 17: Partnerships for the Goals (供應鏈管理、供應商稽核、利害關係人議合)
 
         【輸出格式】
         必須輸出 JSON，包含 "analysis" 以及 E, S, G 的邏輯頁碼範圍。
@@ -105,7 +124,7 @@ class LLMService:
           "G": [ {{"start": 14, "end": 101}}, {{"start": 194, "end": 213}} ]
         }}
 
-        【待分析文本內容】
+        【待分析文本內容 (可能包含亂碼或換行錯誤，請根據上下文理解)】
         {toc_text}
         """
         

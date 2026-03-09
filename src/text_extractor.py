@@ -55,54 +55,80 @@ class TextExtractor:
         high_confidence = [] # [(logical, physical)]
         low_confidence = []  # [(logical, physical)]
         
-        # 匹配行首或行尾的 1-3 位數字
-        start_pattern = re.compile(r"^\s*(\d{1,3})\b")
-        end_pattern = re.compile(r"\b(\d{1,3})\s*$")
-        isolated_pattern = re.compile(r"\b(\d{1,3})\b")
+        # 更強大的匹配：
+        # 匹配行首: ^(Page|P\.|第)?\s*(\d{1,3})\b
+        # 匹配行尾: \b(\d{1,3})\s*(?:-|/|Page|頁)?\s*$
+        start_pattern = re.compile(r"^\s*(?:Page|P\.|第)?\s*(\d{1,3})\b", re.IGNORECASE)
+        end_pattern = re.compile(r"\b(\d{1,3})\s*(?:-|/|Page|頁)?\s*$", re.IGNORECASE)
+        # 頁碼有時被符號包圍，如 - 25 -
+        enclosed_pattern = re.compile(r"(?:^|\s)-\s*(\d{1,3})\s*-(?:\s|$)", re.IGNORECASE)
+        # 廣泛匹配：尋找行中孤立或伴隨分隔符的數字
+        broad_pattern = re.compile(r"(?:^|[\s|/\|])(\d{1,3})(?:[\s|/\|]|$)", re.IGNORECASE)
         
         for page in pages_data:
             p_idx = page['page_num']
             lines = [l.strip() for l in page['content'].split('\n') if l.strip()]
             
-            for line in lines:
+            # 檢查前 5 行與後 5 行 (增加搜尋深度)
+            candidate_indices = list(range(min(5, len(lines)))) + list(range(max(0, len(lines)-5), len(lines)))
+            candidate_indices = sorted(list(set(candidate_indices)))
+            
+            found_on_this_page = False
+            for idx in candidate_indices:
+                line = lines[idx]
+                
+                # 1. 高信心：精確匹配行首或行尾
+                m_enc = enclosed_pattern.search(line)
                 m_start = start_pattern.search(line)
                 m_end = end_pattern.search(line)
                 
-                if m_start:
+                if m_enc:
+                    high_confidence.append((int(m_enc.group(1)), p_idx))
+                    found_on_this_page = True
+                elif m_start:
                     high_confidence.append((int(m_start.group(1)), p_idx))
+                    found_on_this_page = True
                 elif m_end:
                     high_confidence.append((int(m_end.group(1)), p_idx))
-                else:
-                    found = isolated_pattern.findall(line)
+                    found_on_this_page = True
+                
+                if found_on_this_page: break
+            
+            # 2. 低信心：搜尋整頁可能的數字
+            if not found_on_this_page:
+                for line in lines:
+                    found = broad_pattern.findall(line)
                     for n in found:
                         low_confidence.append((int(n), p_idx))
 
         # 篩選候選點：優先使用高信心點
         candidates = sorted(list(set(high_confidence)))
-        if len(candidates) < 5: # 如果高信心點太少，補充低信心點
-            candidates = sorted(list(set(high_confidence + low_confidence)))
+        if len(candidates) < 10: # 提高門檻，如果高信心點不足，才引入低信心點
+            # 過濾低信心點：只保留看起來像頁碼的 (小於總頁數的 1.5 倍)
+            max_expected = len(pages_data) * 1.5
+            filtered_low = [c for c in low_confidence if c[0] <= max_expected]
+            candidates = sorted(list(set(high_confidence + filtered_low)))
 
         if not candidates:
-            return {}
+            return {1: 1}
 
-        # 尋找最佳單調路徑 (RANSAC 簡化版)
-        # 嘗試從不同起點建立路徑，並保留最長且最合理的一條
+        # 尋找最佳單調路徑
         best_path = []
-        
-        # 為了效能，我們只從前幾個候選點開始嘗試
-        for start_idx in range(min(10, len(candidates))):
+        # 增加起始點嘗試次數
+        for start_idx in range(min(50, len(candidates))):
             current_path = [candidates[start_idx]]
             for i in range(start_idx + 1, len(candidates)):
                 l_val, p_val = candidates[i]
                 last_l, last_p = current_path[-1]
                 
-                # 檢查是否單調遞增且斜率合理 (ASE 可能是 1-up)
                 if l_val > last_l and p_val >= last_p:
-                    # 邏輯頁碼增加與物理頁碼增加的比例應在 0.4 到 2.5 之間
-                    # (涵蓋 2-up 與包含許多無頁碼插頁的情況)
                     diff_l = l_val - last_l
                     diff_p = p_val - last_p
-                    if diff_p <= diff_l * 2 + 2: # 允許一定的寬容度
+                    
+                    # 合理性檢查：斜率在合理範圍 (0.3 ~ 3.0)
+                    if 0.3 <= (diff_p / diff_l if diff_l > 0 else 1) <= 3.0:
+                        current_path.append((l_val, p_val))
+                    elif diff_p == 0 and diff_l > 0: # 2-up 情況
                         current_path.append((l_val, p_val))
             
             if len(current_path) > len(best_path):
@@ -111,15 +137,13 @@ class TextExtractor:
         # 轉換為最終 mapping
         mapping = {l: p for l, p in best_path}
         
-        # 補強：確保第一個邏輯頁面有定義
         if mapping:
             min_l = min(mapping.keys())
             if min_l > 1:
-                # 假設第一頁在物理第一頁或附近
-                mapping[1] = 1
+                # 簡單推算第一頁
+                mapping[1] = max(1, mapping[min_l] - (min_l - 1))
         else:
-            # 極端情況：完全沒抓到
-            mapping[1] = 1
+            mapping = {1: 1}
 
         return mapping
 
