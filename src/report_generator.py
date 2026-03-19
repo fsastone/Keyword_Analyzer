@@ -89,6 +89,7 @@ class ReportGenerator:
             with pd.ExcelWriter(output_path, engine='openpyxl') as writer:
                 # 1. 原始數據表
                 summary_rows.to_excel(writer, index=False, sheet_name='All_Years_Raw')
+                self._apply_percent_format(writer.sheets['All_Years_Raw'], summary_rows)
                 
                 # 2. 類別趨勢表 (以 Total_Count 為主)
                 # 使用 pivot_table 以防有重複年份

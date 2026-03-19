@@ -30,7 +30,7 @@ else:
 
 # Gemini 設定
 GEMINI_API_KEY = os.getenv("GOOGLE_API_KEY")
-GEMINI_MODEL_NAME = "gemini-3-flash"  # 使用使用者要求的版本
+GEMINI_MODEL_NAME = "gemini-3-flash-preview"  # 使用使用者要求的版本
 
 # 報表設定
 REPORT_FILENAME = "esg_tech_keyword_analysis.xlsx"

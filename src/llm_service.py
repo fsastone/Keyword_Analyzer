@@ -113,6 +113,7 @@ class LLMService:
         - SDG 11: Sustainable Cities and Communities (企業營運韌性、在地深耕)
         - SDG 16: Peace, Justice and Strong Institutions (公司治理、誠信經營、法規遵循、風險管理)
         - SDG 17: Partnerships for the Goals (供應鏈管理、供應商稽核、利害關係人議合)
+        - Others: 報告前言、編輯摘要、公司簡介、營運狀況、組織架構、董事長的話、執行長的話接歸類為 G 類別。
 
         【輸出格式】
         必須輸出 JSON，包含 "analysis" 以及 E, S, G 的邏輯頁碼範圍。

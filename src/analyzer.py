@@ -48,13 +48,23 @@ class KeywordAnalyzer:
             page_num = page['page_num']
             raw_text = page['content']
             
-            # 文字預處理：將換行符號替換為空格，並壓縮多餘空格，
-            # 同時針對中文移除字與字之間的空格（解決 pypdf 提取問題）
-            # 1. 換行轉空格
-            text_normalized = raw_text.replace('\n', ' ')
-            # 2. 壓縮空格
+            # --- 處理重複圖層問題 ---
+            # 有些 PDF 在同一位置疊加多層文字，導致重複計數。
+            # 我們將頁面拆分為行，並對每一行進行去重處理。
+            raw_lines = [l.strip() for l in raw_text.split('\n') if l.strip()]
+            unique_lines = []
+            seen_lines = set()
+            for line in raw_lines:
+                if line not in seen_lines:
+                    unique_lines.append(line)
+                    seen_lines.add(line)
+            
+            processed_text = '\n'.join(unique_lines)
+            
+            # 文字預處理：將換行符號替換為空格，並壓縮多餘空格
+            text_normalized = processed_text.replace('\n', ' ')
             text_normalized = re.sub(r'\s+', ' ', text_normalized)
-            # 3. 針對中文特化處理：如果兩個中文字之間有空格，則移除該空格
+            # 針對中文特化處理
             text_for_chinese = re.sub(r'([\u4e00-\u9fa5])\s+([\u4e00-\u9fa5])', r'\1\2', text_normalized)
             
             # 判斷當前頁面屬於哪個 ESG 區塊
@@ -81,17 +91,19 @@ class KeywordAnalyzer:
                 for variant in data['variants']:
                     is_english = all(ord(c) < 128 for c in variant)
                     if is_english:
-                        # 英文使用 normalized text (含空格)
                         pattern = re.compile(rf"\b{re.escape(variant)}\b", re.IGNORECASE | re.ASCII)
                         matches = pattern.findall(text_normalized)
                     else:
-                        # 中文使用 special text (移除字間空格)
                         pattern = re.compile(re.escape(variant), re.IGNORECASE)
                         matches = pattern.findall(text_for_chinese)
                     
                     page_item_count += len(matches)
                 
                 if page_item_count > 0:
+                    # --- 異常大數值警告 ---
+                    if page_item_count > 50:
+                        logger.warning(f"偵測到異常關鍵字頻率: 頁碼 {page_num}, 關鍵字 '{main_item}' 出現 {page_item_count} 次。建議人工核對。")
+                    
                     data['total'] += page_item_count
                     data['heatmap'][page_num] = data['heatmap'].get(page_num, 0) + page_item_count
                     

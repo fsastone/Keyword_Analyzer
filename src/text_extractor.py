@@ -190,7 +190,21 @@ class TextExtractor:
         return cleaned_data
 
     @staticmethod
-    def validate_text(pages_data: List[Dict]) -> bool:
-        """驗證提取的總字數"""
+    def validate_text(pages_data: List[Dict], min_avg_chars: int = 50) -> bool:
+        """
+        驗證提取的總字數與平均字數。
+        如果平均每頁字數太少，通常代表該頁是圖片或提取失敗。
+        """
+        if not pages_data:
+            return False
+            
         total_text = "".join([p['content'] for p in pages_data])
-        return len(total_text.strip()) >= 500
+        total_len = len(total_text.strip())
+        avg_len = total_len / len(pages_data)
+        
+        # 總字數太少，或平均每頁字數太少，則視為無效提取
+        if total_len < 500 or avg_len < min_avg_chars:
+            logger.warning(f"文字提取驗證未通過: 總字數 {total_len}, 平均每頁 {avg_len:.1f} 字。")
+            return False
+            
+        return True
