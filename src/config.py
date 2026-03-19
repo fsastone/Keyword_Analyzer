@@ -12,9 +12,10 @@ RAW_PDFS_DIR = BASE_DIR / "raw_pdfs"
 ARCHIVE_DIR = RAW_PDFS_DIR / "archive"
 OCR_NEEDED_DIR = RAW_PDFS_DIR / "ocr_needed"
 OUTPUT_DIR = BASE_DIR / "output"
+SUMMARIES_DIR = OUTPUT_DIR / "company_summaries"
 
 # 確保目錄存在
-for path in [RAW_PDFS_DIR, ARCHIVE_DIR, OCR_NEEDED_DIR, OUTPUT_DIR]:
+for path in [RAW_PDFS_DIR, ARCHIVE_DIR, OCR_NEEDED_DIR, OUTPUT_DIR, SUMMARIES_DIR]:
     path.mkdir(parents=True, exist_ok=True)
 
 # 關鍵字定義路徑
@@ -29,7 +30,7 @@ else:
 
 # Gemini 設定
 GEMINI_API_KEY = os.getenv("GOOGLE_API_KEY")
-GEMINI_MODEL_NAME = "gemini-2.5-flash"  # 使用使用者要求的版本
+GEMINI_MODEL_NAME = "gemini-3-flash"  # 使用使用者要求的版本
 
 # 報表設定
 REPORT_FILENAME = "esg_tech_keyword_analysis.xlsx"
