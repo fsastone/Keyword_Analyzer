@@ -14,6 +14,7 @@ from src.llm_service import LLMService
 from src.analyzer import KeywordAnalyzer
 from src.file_manager import FileManager
 from src.report_generator import ReportGenerator
+from src.ocr_service import OCRService
 
 # 設定 Logging 格式與 Tqdm 兼容
 class TqdmLoggingHandler(logging.Handler):
@@ -29,7 +30,7 @@ class TqdmLoggingHandler(logging.Handler):
 def setup_logging():
     logging.basicConfig(
         level=logging.INFO,
-        format='[%(name)-10.10s] [%(levelname)-7.7s] %(message)s',
+        format='[%(name)-6s] %(message)s',
         handlers=[TqdmLoggingHandler()]
     )
     # 壓制第三方庫
@@ -38,7 +39,7 @@ def setup_logging():
     logging.getLogger("httpx").setLevel(logging.WARNING)
 
 setup_logging()
-logger = logging.getLogger("MAIN")
+logger = logging.getLogger("_MAIN_")
 
 def extract_company_and_year(filename: str):
     """
@@ -65,10 +66,15 @@ def extract_company_and_year(filename: str):
         
     return clean_name, year
 
-def process_single_pdf(pdf_path: Path) -> Dict[str, Any]:
+def process_single_pdf(pdf_path: Path, is_high_volume: bool = False) -> Dict[str, Any]:
     """
     單個 PDF 的處理邏輯，適合多進程調用。
     """
+    if is_high_volume:
+        # 在子進程中抑制不必要的日誌
+        for name in ["TXT_EX", "GEMINI", "FILMGR", "ANLYZR"]:
+            logging.getLogger(name).setLevel(logging.WARNING)
+
     # 每個進程需要獨立實例化服務
     extractor = TextExtractor()
     llm = LLMService()
@@ -110,8 +116,13 @@ def process_single_pdf(pdf_path: Path) -> Dict[str, Any]:
             if not toc_text_for_llm.strip():
                 esg_ranges = {"analysis": "Empty TOC", "E": [], "S": [], "G": []}
             else:
-                raw_pages_for_mapping, _ = extractor.extract_text_by_pages(pdf_path, remove_boilerplate=False)
-                mapping = extractor.get_logical_to_physical_mapping(raw_pages_for_mapping)
+                # 頁碼映射：如果原本就是全量提取且已過濾樣板，則直接複用以節省時間與日誌雜訊
+                if MAX_PAGES_TO_EXTRACT is None:
+                    mapping = extractor.get_logical_to_physical_mapping(pages_data)
+                else:
+                    raw_pages_for_mapping, _ = extractor.extract_text_by_pages(pdf_path, remove_boilerplate=True)
+                    mapping = extractor.get_logical_to_physical_mapping(raw_pages_for_mapping)
+                
                 esg_ranges = llm.parse_esg_toc(toc_text_for_llm, total_pdf_pages, mapping)
             
         # 整理章節範圍用於報表
@@ -196,10 +207,42 @@ def generate_summaries_from_existing():
     
     logger.info("彙總報表生成完成。")
 
+def handle_ocr_mode():
+    """處理 OCR 模式：將 ocr_needed 中的 PDF 轉換為文字"""
+    from src.config import OCR_NEEDED_DIR, RAW_PDFS_DIR
+    logger.info("=== 啟動 OCR 處理模式 ===")
+    
+    ocr_srv = OCRService()
+    pdf_files = [f for f in OCR_NEEDED_DIR.iterdir() if f.is_file() and f.suffix.lower() == ".pdf"]
+    
+    if not pdf_files:
+        logger.info("ocr_needed 目錄中沒有待處理的 PDF。")
+        return
+
+    for pdf_path in tqdm(pdf_files, desc="OCR 處理中", ncols=80):
+        content = ocr_srv.process_pdf(pdf_path)
+        if content:
+            # 將結果存為 .txt 檔案回到 raw_pdfs
+            txt_path = RAW_PDFS_DIR / f"{pdf_path.stem}.txt"
+            with open(txt_path, "w", encoding="utf-8") as f:
+                f.write(content)
+            logger.info(f"OCR 完成，文字已存至: {txt_path.name}")
+            # 檔案處理後，原 PDF 移至 archive (避免重複 OCR)
+            archive_path = OCR_NEEDED_DIR / "archive"
+            archive_path.mkdir(exist_ok=True)
+            pdf_path.rename(archive_path / pdf_path.name)
+        else:
+            logger.error(f"OCR 處理失敗: {pdf_path.name}")
+
 def main():
     parser = argparse.ArgumentParser(description="ESG 關鍵字智慧分析系統")
     parser.add_argument("--summary-only", "-s", action="store_true", help="僅根據 output 目錄中的現有結果生成公司彙總報表")
+    parser.add_argument("--ocr", action="store_true", help="執行 OCR 處理 ocr_needed 中的檔案")
     args = parser.parse_args()
+
+    if args.ocr:
+        handle_ocr_mode()
+        return
 
     if args.summary_only:
         generate_summaries_from_existing()
@@ -223,6 +266,9 @@ def main():
     is_high_volume = total_files > 5
     if is_high_volume:
         logger.info("偵測到大量檔案，將開啟簡潔日誌模式。")
+        # 僅保留 MAIN 與 REPORT 的 INFO 級別，其餘調高至 WARNING
+        for name in ["TXT_EX", "GEMINI", "FILMGR", "ANLYZR"]:
+            logging.getLogger(name).setLevel(logging.WARNING)
 
     # 用於儲存彙總數據
     company_data_store = {}
@@ -236,7 +282,7 @@ def main():
     # 執行多進程處理
     with concurrent.futures.ProcessPoolExecutor(max_workers=max_workers) as executor:
         # 提交所有任務
-        future_to_pdf = {executor.submit(process_single_pdf, pdf): pdf for pdf in pdf_files}
+        future_to_pdf = {executor.submit(process_single_pdf, pdf, is_high_volume): pdf for pdf in pdf_files}
         
         # 使用 tqdm 追蹤進度
         for future in tqdm(concurrent.futures.as_completed(future_to_pdf), total=total_files, desc="分析中", ncols=80):

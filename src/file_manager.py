@@ -3,7 +3,7 @@ import logging
 from pathlib import Path
 from .config import ARCHIVE_DIR, OCR_NEEDED_DIR
 
-logger = logging.getLogger("FILE_MGR")
+logger = logging.getLogger("FILMGR")
 
 class FileManager:
     """管理檔案移動與歸檔"""
@@ -30,5 +30,7 @@ class FileManager:
 
     @staticmethod
     def get_input_files(input_dir: Path):
-        """獲取待處理的 PDF 檔案列表"""
-        return list(input_dir.glob("*.pdf"))
+        """獲取待處理的 PDF 或 TXT 檔案列表"""
+        pdf_files = list(input_dir.glob("*.pdf"))
+        txt_files = list(input_dir.glob("*.txt"))
+        return pdf_files + txt_files

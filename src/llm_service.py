@@ -3,7 +3,7 @@ from google.genai import types
 from .config import GEMINI_API_KEY, GEMINI_MODEL_NAME
 import logging
 
-logger = logging.getLogger("GEMINI_API")
+logger = logging.getLogger("GEMINI")
 
 class LLMService:
     """Gemini API 封裝，支持 Token 使用量統計"""
@@ -169,32 +169,74 @@ class LLMService:
             result = response.parsed
             logger.info(f"LLM TOC 邏輯頁碼分析結果: {result.get('analysis')}")
             
-            # 將邏輯頁碼轉換為物理頁碼 (PDF 頁序)
-            final_result = {"analysis": result.get("analysis")}
-            for section in ["E", "S", "G"]:
-                valid_physical_ranges = []
-                logical_ranges = result.get(section, [])
-                logger.debug(f"原始 {section} 邏輯範圍: {logical_ranges}")
-                
+            if mapping:
+                logger.info(f"頁碼映射摘要: {sorted(mapping.items())[:3]} ... {sorted(mapping.items())[-2:]}")
+
+            # 準備存儲物理範圍
+            section_physical_ranges = {"E": [], "S": [], "G": []}
+            
+            # 1. 邏輯轉物理
+            for sec_key in ["E", "S", "G"]:
+                logical_ranges = result.get(sec_key, [])
                 for r in logical_ranges:
                     l_start = r.get("start", 0)
                     l_end = r.get("end", 0)
-                    
                     p_start = self._map_to_physical(l_start, mapping, total_pdf_pages)
                     p_end = self._map_to_physical(l_end, mapping, total_pdf_pages)
-                    
                     if 0 < p_start <= p_end <= total_pdf_pages:
-                        valid_physical_ranges.append({"start": p_start, "end": p_end})
-                
-                # 合併重疊或連續的物理範圍
-                merged_ranges = self._merge_ranges(valid_physical_ranges)
-                final_result[section] = merged_ranges
-                if merged_ranges:
-                    logger.info(f"識別出 {section} 物理範圍: {merged_ranges}")
-                    
+                        section_physical_ranges[sec_key].append({"start": p_start, "end": p_end})
+
+            # 2. 合併各類別內部的範圍
+            for sec_key in ["E", "S", "G"]:
+                section_physical_ranges[sec_key] = self._merge_ranges(section_physical_ranges[sec_key])
+
+            # 3. 處理跨類別衝突 (互斥性)
+            all_ranges = []
+            for sec_key in ["E", "S", "G"]:
+                for r in section_physical_ranges[sec_key]:
+                    all_ranges.append({"section": sec_key, "start": r["start"], "end": r["end"]})
+            
+            all_ranges.sort(key=lambda x: x["start"])
+            
+            for i in range(len(all_ranges) - 1):
+                curr = all_ranges[i]
+                nxt = all_ranges[i+1]
+                if curr["end"] >= nxt["start"]:
+                    logger.warning(f"檢測到類別衝突: {curr['section']} 與 {nxt['section']} 重疊於 {curr['end']} 頁。已強制切分。")
+                    curr["end"] = nxt["start"] - 1
+
+            # 4. 寫回最終結果並執行前言擴展
+            final_result = {"analysis": result.get("analysis"), "E": [], "S": [], "G": []}
+            for r in all_ranges:
+                if r["start"] <= r["end"]:
+                    final_result[r["section"]].append({"start": r["start"], "end": r["end"]})
+
+            # 自動擴展第一個類別到第 1 頁
+            all_starts = []
+            for sec_key in ["E", "S", "G"]:
+                for r in final_result[sec_key]:
+                    all_starts.append(r["start"])
+            
+            if all_starts:
+                min_p_start = min(all_starts)
+                if min_p_start > 1:
+                    for sec_key in ["E", "S", "G"]:
+                        for r in final_result[sec_key]:
+                            if r['start'] == min_p_start:
+                                logger.info(f"自動擴展 {sec_key} 類別至第 1 頁。")
+                                r['start'] = 1
+                                break
+            
+            for sec_key in ["E", "S", "G"]:
+                if final_result[sec_key]:
+                    logger.info(f"{sec_key} 物理範圍: {final_result[sec_key]}")
+            
             return final_result
+            
         except Exception as e:
             logger.error(f"LLM 解析 TOC 失敗: {e}")
+            import traceback
+            logger.error(traceback.format_exc())
             return {"analysis": "Error", "E": [], "S": [], "G": []}
 
     def _merge_ranges(self, ranges: list) -> list:
@@ -203,34 +245,29 @@ class LLMService:
             return []
         # 按起始頁碼排序
         sorted_ranges = sorted(ranges, key=lambda x: x['start'])
-        merged = [sorted_ranges[0]]
+        merged = [dict(sorted_ranges[0])]
         for current in sorted_ranges[1:]:
             prev = merged[-1]
             if current['start'] <= prev['end'] + 1:
                 prev['end'] = max(prev['end'], current['end'])
             else:
-                merged.append(current)
+                merged.append(dict(current))
         return merged
 
     def _map_to_physical(self, logical_page: int, mapping: dict, total_pdf_pages: int) -> int:
         """將報告印出的頁碼轉換為 PDF 檔案的實際頁碼，採用局部插值法"""
-        if not logical_page:
+        if logical_page is None or logical_page <= 0:
             return 0
         
         if not mapping:
-            # 沒數據時，嘗試判斷是否為 2-up
             if logical_page > total_pdf_pages * 1.1:
                 return max(1, min(int(logical_page / 2), total_pdf_pages))
             return max(1, min(logical_page, total_pdf_pages))
 
         sorted_logical = sorted(mapping.keys())
-        
-        # 1. 精確匹配
         if logical_page in mapping:
             return mapping[logical_page]
             
-        # 2. 局部插值
-        # 找到 logical_page 兩側最近的點
         lower_idx = -1
         for i, l_val in enumerate(sorted_logical):
             if l_val < logical_page:
@@ -239,33 +276,36 @@ class LLMService:
                 break
         
         if lower_idx == -1:
-            # 在所有點之前：根據第一個點和假設斜率外推
             first_l = sorted_logical[0]
             first_p = mapping[first_l]
-            # 判斷斜率：如果整體呈現 2-up 特徵 (Max Logic > Total Physical * 1.2)
-            is_2up = sorted_logical[-1] > total_pdf_pages * 1.1
-            slope = 0.5 if is_2up else 1.0
-            est_p = first_p - (first_l - logical_page) * slope
-            return max(1, min(int(est_p), total_pdf_pages))
+            if first_l > 1:
+                if first_p <= 1: return 1
+                slope = (first_p - 1) / (first_l - 1)
+                est_p = 1 + (logical_page - 1) * slope
+                return max(1, min(int(est_p), total_pdf_pages))
+            return first_p
             
         if lower_idx == len(sorted_logical) - 1:
-            # 在所有點之後：根據最後一個點外推
             last_l = sorted_logical[-1]
             last_p = mapping[last_l]
-            is_2up = sorted_logical[-1] > total_pdf_pages * 1.1
-            slope = 0.5 if is_2up else 1.0
+            # 嘗試使用最後一段的斜率
+            if len(sorted_logical) >= 2:
+                prev_l = sorted_logical[-2]
+                prev_p = mapping[prev_l]
+                slope = (last_p - prev_p) / (last_l - prev_l)
+            else:
+                is_2up = sorted_logical[-1] > total_pdf_pages * 1.1
+                slope = 0.5 if is_2up else 1.0
+            
+            slope = max(0.3, min(2.0, slope))
             est_p = last_p + (logical_page - last_l) * slope
             return max(1, min(int(est_p), total_pdf_pages))
             
-        # 在兩個點之間插值
         l1, l2 = sorted_logical[lower_idx], sorted_logical[lower_idx+1]
         p1, p2 = mapping[l1], mapping[l2]
-        
-        # 計算局部斜率 (若分母為 0 則回傳 p1)
         if l2 != l1:
             slope = (p2 - p1) / (l2 - l1)
-            # 限制斜率在合理範圍 (0.3 ~ 1.5)，防止極端跳躍
-            slope = max(0.3, min(1.5, slope))
+            slope = max(0.3, min(2.0, slope))
             est_p = p1 + (logical_page - l1) * slope
             return max(1, min(int(est_p), total_pdf_pages))
         return p1

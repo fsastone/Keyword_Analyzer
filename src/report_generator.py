@@ -5,7 +5,7 @@ from openpyxl.styles import NumberFormatDescriptor
 from .config import OUTPUT_DIR, SUMMARIES_DIR
 import logging
 
-logger = logging.getLogger("REPORTER")
+logger = logging.getLogger("REPORT")
 
 class ReportGenerator:
     """針對單一 PDF 生成專業報表，以及公司跨年度彙總報表"""

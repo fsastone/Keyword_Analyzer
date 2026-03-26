@@ -5,7 +5,7 @@ from .config import KEYWORD_DICT
 
 # 不需要額外匯入 logging，只需定義 logger
 import logging
-logger = logging.getLogger("ANALYZER")
+logger = logging.getLogger("ANALYZ")
 
 class KeywordAnalyzer:
     """關鍵字統計與位置追蹤邏輯"""
