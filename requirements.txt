@@ -1,8 +1,10 @@
 pypdf
-google-genai
 pandas
-openpyxl
-python-dotenv
+google-genai
 tqdm
-numpy
+python-dotenv
+openpyxl
 markitdown[pdf]
+jinja2
+matplotlib
+scipy
